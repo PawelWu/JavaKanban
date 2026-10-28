@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Time Summary &mdash; Kanban Board</title>
+  <link rel="stylesheet" href="style.css?v=4" />
+  <style>
+    /* Page-specific styles for the time summary page. */
+    .summary-wrap {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .summary-wrap h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 18px;
+    }
+
+    .summary-wrap a { color: #4f46e5; text-decoration: underline; }
+
+    /* From / to date picker (defaults: 7 days ago -> today). */
+    .range-row {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .range-row label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #374151;
+      gap: 8px;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .range-row input-date {
+      font-size: 0.9rem;
+      padding: 5px 8px;
+    }
+
+    .range-row input-date { color: #374151; }
+
+    /* Which range is actually being shown (updates immediately on edit). */
+    .showing {
+      font-size: 0.85rem;
+      color: #3730a3;
+      font-weight: 600;
+      margin: 6px 0 12px 0;
+    }
+
+    .totals {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .totals .stat {
+      background: #f5f6f8;
+      border-radius: 8px;
+      padding: 10px 16px;
+      text-align: center;
+      min-width: 110px;
+    }
+
+    .totals .stat-value { font-size: 1.1rem; font-weight: 700; color: #3730a3; }
+    .totals .stat-label { font-size: 0.65rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; }
+
+    /* Text version of the summary (a readable sentence, not only numbers). */
+    .sum-text {
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: #1f2937;
+      margin: 0 0 16px 0;
+    }
+
+    /* Day-by-day output: 17.10 Monday -> tasks -> that day's sessions. */
+    .day-block {
+      margin: 0 0 18px 0;
+      padding: 10px 0 10px 12px;
+      border-left: 3px solid #c7d2fe;
+      background: #fbfcff;
+    }
+
+    .day-head {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #1f2937;
+      margin-bottom: 8px;
+    }
+
+    .day-date { font-size: 1.15rem; font-weight: 700; color: #1f2937; font-variant-numeric: tabular-nums; }
+    .day-week { color: #4f46e5; font-weight: 600; }
+    .day-total { font-weight: 600; color: #6b7280; font-variant-numeric: tabular-nums; }
+
+    .day-task { margin: 0 0 10px 14px; }
+    .task-name { font-size: 0.9rem; font-weight: 600; color: #1f2937; margin-bottom: 4px; }
+    .task-col { font-size: 0.75rem; color: #6b7280; }
+    .task-day-total { font-size: 0.75rem; color: #3730a3; font-weight: 600; }
+
+    .day-logs { margin: 4px 0 0 0; padding-left: 18px; }
+    .day-logs li { font-size: 0.8rem; margin-bottom: 3px; }
+    .sum-entry-time { font-variant-numeric: tabular-nums; color: #1f2937; }
+    .sum-entry-dur { color: #3730a3; font-weight: 600; }
+    .sum-running { color: #166534; font-weight: 700; font-size: 0.75rem; }
+    .sum-empty { color: #9ca3af; font-style: italic; font-size: 0.85rem; padding: 16px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Time Tracking Summary</h1>
+    <a class="btn btn-secondary" href="index.html">&larr; Back to Board</a>
+  </header>
+
+  <div class="summary-wrap">
+    <div class="range-row">
+      <label>From <input type="date" id="from-date" title="Start date (default: 7 days ago)" /></label>
+      <label>To <input type="date" id="to-date" title="End date (default: today)" /></label>
+    </div>
+
+    <p class="showing" id="showing">Showing: last 7 days</p>
+
+    <div class="totals" id="totals"></div>
+    <p class="sum-text" id="sum-text"></p>
+    <div id="summary-body"></div>
+  </div>
+
+  <script>
+    const DEFAULT_DAYS = 7;
+
+    function pad2(value) {
+      return String(value).padStart(2, '0');
+    }
+
+    function fmtDuration(seconds) {
+      const s = Math.max(0, Math.round(seconds));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      if (h > 0) return `${h}h ${pad2(m)}m`;
+      if (m > 0) return `${m}m ${pad2(sec)}s`;
+      return `${sec}s`;
+    }
+
+    function pluralize(count, word) {
+      return `${count} ${word}${count === 1 ? '' : 's'}`;
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function fmtDay(iso) {
+      if (!iso) return '';
+      return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour12: false });
+    }
+
+    // HH:MM (seconds only when they are not :00), for listing single sessions.
+    function fmtTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const h = pad2(d.getHours());
+      const m = pad2(d.getMinutes());
+      const s = pad2(d.getSeconds());
+      return s === '00' ? `${h}:${m}` : `${h}:${m}:${s}`;
+    }
+
+    // Day headings are calendar dates (no timezone), so parse the parts instead of
+    // going through new Date("2026-10-17"), which would shift the day in UTC-negative zones.
+    function dayParts(dateIso) {
+      const parts = String(dateIso).slice(0, 10).split('-').map(Number);
+      return { y: parts[0], m: parts[1], d: parts[2] };
+    }
+
+    // "17.10" as in the day heading.
+    function fmtDayNumber(dateIso) {
+      const p = dayParts(dateIso);
+      return `${pad2(p.d)}.${pad2(p.m)}`;
+    }
+
+    function dayWeekday(dateIso) {
+      const p = dayParts(dateIso);
+      return new Date(p.y, p.m - 1, p.d).toLocaleString('en-US', { weekday: 'long' });
+    }
+
+    function dayYear(dateIso) {
+      return dayParts(dateIso).y;
+    }
+
+    function esc(value) {
+      if (value == null) return '';
+      return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    }
+
+    // A session inside one day: times only, the day heading already gives the date.
+    function entryLine(log) {
+      const stopLabel = log.running
+        ? `<span class="sum-running">\u25CF running</span>`
+        : esc(fmtTime(log.stoppedAt));
+      const note = log.description && log.description.trim()
+        ? ` \u2014 ${esc(log.description.trim().replace(/\s*\n\s*/g, ' / '))}`
+        : '';
+      return `<li><span class="sum-entry-time">${esc(fmtTime(log.startedAt))} \u2192 ${stopLabel}</span> · <span class="sum-entry-dur">${esc(fmtDuration(log.durationSeconds))}</span>${note}</li>`;
+    }
+
+    function ymd(date) {
+      return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    }
+
+    function defaultFrom() {
+      const d = new Date();
+      d.setDate(d.getDate() - DEFAULT_DAYS);
+      return ymd(d);
+    }
+
+    function defaultTo() {
+      return ymd(new Date());
+    }
+
+    const fromInput = document.getElementById('from-date');
+    const toInput = document.getElementById('to-date');
+    const showingEl = document.getElementById('showing');
+    const totalsEl = document.getElementById('totals');
+    const textEl = document.getElementById('sum-text');
+    const wrap = document.getElementById('summary-body');
+
+    // Prefill the defaults so the inputs are visible/editable from the start.
+    if (!fromInput.value) fromInput.value = defaultFrom();
+    if (!toInput.value) toInput.value = defaultTo();
+
+    let busy = false;
+    let lastRange = null;
+    let lastAt = 0;
+
+    async function load() {
+      const requestedFrom = fromInput.value || defaultFrom();
+      const requestedTo = toInput.value || defaultTo();
+      let from = requestedFrom;
+      let to = requestedTo;
+      if (from > to) {
+        const swap = from;
+        from = to;
+        to = swap;
+      }
+      const range = `${from}|${to}`;
+      const now = Date.now();
+      if (busy || (range === lastRange && now - lastAt < 400)) return;
+      lastRange = range;
+      lastAt = now;
+      busy = true;
+
+      showingEl.textContent = `Showing: ${fmtDay(from)} \u2192 ${fmtDay(to)}`;
+      try {
+        const res = await fetch(`/api/time/summary/${from}/${to}`, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const days = data.days || 0;
+        const byDay = data.byDay || [];
+
+        totalsEl.innerHTML = `
+          <div class="stat"><div class="stat-value">${fmtDuration(data.totalSeconds)}</div><div class="stat-label">Time spent</div></div>
+          <div class="stat"><div class="stat-value">${data.logCount}</div><div class="stat-label">Sessions</div></div>
+          <div class="stat"><div class="stat-value">${data.activeTaskCount}</div><div class="stat-label">Tasks logged</div></div>
+          <div class="stat"><div class="stat-value">${byDay.length}</div><div class="stat-label">Days with logs</div></div>`;
+
+        let sentence;
+        if (byDay.length === 0) {
+          sentence = `No time was logged from ${fmtDay(from)} to ${fmtDay(to)}.`;
+        } else {
+          const running = byDay.reduce((sum, d) => sum + (d.tasks || []).reduce((n, t) => n + (t.logs || []).filter((l) => l.running).length, 0), 0);
+          sentence = `From ${fmtDay(from)} to ${fmtDay(to)} (${pluralize(days, 'day')}) you spent ${fmtDuration(data.totalSeconds)} across ${pluralize(data.logCount, 'session')} on ${pluralize(data.activeTaskCount, 'task')} in ${pluralize(byDay.length, 'day')}.` +
+            (running > 0 ? ` ${pluralize(running, 'session')} still running.` : '');
+        }
+        textEl.textContent = sentence;
+
+        // Day blocks: heading (17.10 Monday), then one block per task with that day's sessions.
+        wrap.innerHTML = byDay.map((day) => {
+          const yearSuffix = dayYear(day.date) !== new Date(data.to).getFullYear() ? ` ${dayYear(day.date)}` : '';
+          const taskBlocks = (day.tasks || []).map((t) => {
+            const logs = t.logs || [];
+            const lines = logs.map(entryLine).join('');
+            return `<div class="day-task">
+              <div class="task-name">${esc(t.title)} <span class="task-col">(${esc(t.columnTitle)}) <span class="task-day-total">${fmtDuration(t.totalSeconds)}</span></span></div>
+              ${logs.length ? `<ul class="day-logs">${lines}</ul>` : ''}
+            </div>`;
+          }).join('');
+          return `<div class="day-block">
+            <div class="day-head"><span class="day-date">${fmtDayNumber(day.date)}${yearSuffix}</span> <span class="day-week">${dayWeekday(day.date)}</span> <span class="day-total">${fmtDuration(day.totalSeconds)} in ${pluralize(day.logCount, 'session')}</span></div>
+            ${taskBlocks}
+          </div>`;
+        }).join('');
+
+        if (byDay.length === 0) {
+          wrap.innerHTML = `<p class="sum-empty">Nothing logged in ${fmtDay(from)} \u2192 ${fmtDay(to)}.</p>`;
+        }
+      } catch (err) {
+        textEl.textContent = `\u26A0 Cannot load summary: ${err.message}`;
+        wrap.innerHTML = `<p class="sum-empty">${esc(err.message)}</p>`;
+      } finally {
+        busy = false;
+      }
+    }
+
+    // Re-run the summary whenever either date input is edited.
+    [fromInput, toInput].forEach((input) => {
+      const onChange = () => load();
+      input.addEventListener('change', onChange);
+      input.addEventListener('input', onChange);
+      input.addEventListener('blur', onChange);
+      input.addEventListener('pointerdown', onChange);
+    });
+
+    load();
+  </script>
+</body>
+</html>

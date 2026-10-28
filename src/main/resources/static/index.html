@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kanban Board</title>
+  <!-- ?v= busts the browser cache: Spring serves static files with a constant
+       Last-Modified (the jar entry date, 1980) and no ETag, so browsers cache
+       these for years unless the URL changes. Bump ?v= when the file changes. -->
+  <link rel="stylesheet" href="style.css?v=4" />
+</head>
+<body>
+  <!-- Header -->
+  <header>
+    <h1>Kanban Board</h1>
+    <nav class="header-links">
+      <a class="btn btn-secondary" href="time.html?v=4">&#x23F1; Time Summary</a>
+    </nav>
+    <button id="add-column-btn" class="btn btn-secondary">+ Add Column</button>
+  </header>
+
+  <!-- Board -->
+  <div id="board" class="board"></div>
+
+  <!-- Add Task Modal -->
+  <div id="task-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">New Task</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="task-form">
+        <input type="hidden" id="task-id" />
+        <input type="hidden" id="task-column-id" />
+
+        <div class="form-group">
+          <label for="task-title">Title</label>
+          <input type="text" id="task-title" placeholder="Task title" required />
+        </div>
+
+        <div class="form-group">
+          <label for="task-desc">Description</label>
+          <textarea id="task-desc" rows="3" placeholder="Task description"></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-priority">Priority</label>
+            <select id="task-priority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="task-deadline">Deadline</label>
+            <input type="date" id="task-deadline" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="task-url">URL</label>
+          <input type="text" id="task-url" placeholder="https://..." />
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-cancel modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="task-submit-btn">Create Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Column Modal -->
+  <div id="column-modal" class="modal hidden">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2>New Column</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="column-form">
+        <div class="form-group">
+          <label for="column-title">Column Name</label>
+          <input type="text" id="column-title" placeholder="e.g. In Review" required />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-cancel modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Column</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Start / Stop Time Modal -->
+  <div id="time-modal" class="modal hidden">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2 id="time-modal-title">Start Time Log</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="time-form">
+        <input type="hidden" id="time-mode" />
+        <input type="hidden" id="time-task-id" />
+        <input type="hidden" id="time-column-id" />
+        <input type="hidden" id="time-orig-desc" />
+
+        <div class="form-group">
+          <label for="time-desc">Description</label>
+          <textarea id="time-desc" rows="3" placeholder="What are you working on?"></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-cancel modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="time-submit-btn">Start</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Subtask Modal (add a row / toggle / delete existing rows) -->
+  <div id="subtask-modal" class="modal hidden">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2 id="subtask-modal-title">Subtasks</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="subtask-form">
+        <input type="hidden" id="sub-column-id" />
+        <input type="hidden" id="sub-task-id" />
+
+        <div class="form-group">
+          <label for="subtask-title">Add a subtask</label>
+          <input type="text" id="subtask-title" placeholder="e.g. Reproduce the bug" />
+        </div>
+
+        <div id="subtask-modal-body" class="modal-body"></div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-cancel modal-cancel">Close</button>
+          <button type="submit" class="btn btn-primary" id="subtask-add-btn">Add</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Task Info / Time Log Modal -->
+  <div id="log-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="log-modal-title">Task Info</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div id="log-modal-body" class="modal-body"></div>
+      <div class="modal-actions">
+        <button class="btn btn-cancel modal-cancel">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2 id="confirm-title">Confirm</h2>
+      </div>
+      <p id="confirm-message"></p>
+      <div class="modal-actions">
+        <button class="btn btn-cancel" id="confirm-no">No</button>
+        <button class="btn btn-danger" id="confirm-yes">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=4"></script>
+</body>
+</html>
